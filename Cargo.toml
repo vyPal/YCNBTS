@@ -1,0 +1,14 @@
+[package]
+name = "ycnbts"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.42.0", features = ["full"] }
+serde = { version = "1.0.217", features = ["derive"] }
+color-eyre = "0.6.3"
+crossterm = "0.28.1"
+ratatui = "0.29.0"
+clap = { version = "4.5.23", features = ["derive"] }
+uuid = { version = "1.11.0", features = ["fast-rng", "serde", "v4"] }
+bincode = "1.3.3"
