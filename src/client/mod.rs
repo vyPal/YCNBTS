@@ -86,45 +86,53 @@ impl Client {
                 break;
             }
 
-            match bincode::deserialize_from::<&[u8], ClientBoundMessage>(
-                &buffer[..],
-            ) {
-                Ok(message) => {
-                    match message {
-                        ClientBoundMessage::SetUuid(uuid) => {
-                            *self.uuid.lock().await = Some(uuid);
-                        },
-                        ClientBoundMessage::ClientList(client_description) => {
-                            *self.peer_list.lock().await = client_description;
-                        },
-                        ClientBoundMessage::NewClient(client_description) => {
-                            self.peer_list.lock().await.push(client_description);
-                        },
-                        ClientBoundMessage::ClientDisconnected(uuid) => {
-                            let mut peer_list = self.peer_list.lock().await;
-                            peer_list.retain(|(_, id)| *id != uuid);
-                        },
-                        ClientBoundMessage::ConnectionRequest(client_description) => {
-                            let mut connection_requests = self.connection_requests.lock().await;
-                            if connection_requests.iter().find(|(_, id)| *id == client_description.1).is_none() {
-                                connection_requests.push(client_description);
-                                println!("\n\r\n You have a new connection request. Type 'accept' to view and accept it.\n\r");
-                            }
-                        },
-                        ClientBoundMessage::ConnectionResponse(client_description, accepted) => {
-                            if accepted {
-                                let mut open_connections = self.open_connections.lock().await;
-                                open_connections.push(client_description.1);
-                                println!("\n\r\n Connection accepted.Type 'open' again to choose channel.\n\r");
-                            } else {
-                                println!("\n\r\n Connection rejected.\n\r");
-                            }
-                        },
-                        _ => {
-                            println!("Received message: {:?}", message);
+            match bincode::deserialize_from::<&[u8], ClientBoundMessage>(&buffer[..]) {
+                Ok(message) => match message {
+                    ClientBoundMessage::SetUuid(uuid) => {
+                        *self.uuid.lock().await = Some(uuid);
+                    }
+                    ClientBoundMessage::ClientList(client_description) => {
+                        *self.peer_list.lock().await = client_description;
+                    }
+                    ClientBoundMessage::NewClient(client_description) => {
+                        self.peer_list.lock().await.push(client_description);
+                    }
+                    ClientBoundMessage::ClientDisconnected(uuid) => {
+                        let mut peer_list = self.peer_list.lock().await;
+                        peer_list.retain(|(_, id)| *id != uuid);
+                    }
+                    ClientBoundMessage::ConnectionRequest(client_description) => {
+                        let mut connection_requests = self.connection_requests.lock().await;
+                        if connection_requests
+                            .iter()
+                            .find(|(_, id)| *id == client_description.1)
+                            .is_none()
+                        {
+                            connection_requests.push(client_description);
+                            println!("\n\r\n You have a new connection request. Type 'accept' to view and accept it.\n\r");
                         }
                     }
-                }
+                    ClientBoundMessage::ConnectionResponse(client_description, accepted) => {
+                        if accepted {
+                            let mut open_connections = self.open_connections.lock().await;
+                            open_connections.push(client_description.1);
+                            println!("\n\r\n Connection accepted.Type 'open' again to choose channel.\n\r");
+                        } else {
+                            println!("\n\r\n Connection rejected.\n\r");
+                        }
+                    }
+                    ClientBoundMessage::Message(client_description, message) => {
+                        let name = self
+                            .peer_list
+                            .lock()
+                            .await
+                            .iter()
+                            .find(|(_, id)| *id == client_description.1)
+                            .map(|(name, _)| name.clone())
+                            .unwrap_or("Unknown".to_string());
+                        println!("\n\r\n{}: {}\n\r", name, message);
+                    }
+                },
                 Err(e) => {
                     eprintln!("Failed to deserialize message: {}", e);
                 }
@@ -148,7 +156,9 @@ impl Client {
             let message = crate::shared::messages::ServerBoundMessage::Advertise(friendly_name);
             self.send_message(message).await;
         } else {
-            println!("\n\n No friendly name set. Your uuid will not be displayed to other clients.\n");
+            println!(
+                "\n\n No friendly name set. Your uuid will not be displayed to other clients.\n"
+            );
             print!("Anyone who wants to connect to you will need to know your uuid. Type 'uuid' to view it.\n\n");
         }
         loop {
@@ -164,16 +174,21 @@ impl Client {
                 "list" => self.list_peers().await,
                 "open" => self.open_connection(None).await,
                 "accept" => self.accept_connection().await,
-                "" => {},
+                "" => {}
                 _ => {
                     if action.starts_with("open") {
-                        let uuid = action.split_whitespace().nth(1).map(|uuid| Uuid::parse_str(uuid).unwrap());
+                        let uuid = action
+                            .split_whitespace()
+                            .nth(1)
+                            .map(|uuid| Uuid::parse_str(uuid).unwrap());
                         self.open_connection(uuid).await;
+                    } else if action.starts_with("send") {
+                        let message = action.splitn(2, ' ').nth(1).unwrap_or("").to_string();
+                        self.ui_send_message(message).await;
                     } else {
                         println!("Unknown action: {}", action);
                     }
                 }
-                
             }
         }
     }
@@ -185,9 +200,10 @@ impl Client {
         println!("help: Display this help message");
         println!("uuid: Display your uuid");
         println!("list: List available peers");
-        println!("open: Open a connection to a peer");
+        println!("open (uuid?): Open a connection to a peer");
         println!("close: Close a connection to a peer");
         println!("accept: View pending connection requests");
+        println!("send <message>: Send a message to current channel");
     }
 
     async fn display_uuid(&self) {
@@ -217,7 +233,7 @@ impl Client {
                     println!("\n\r\n You are now connected to this channel.\n\r");
                     *current_channel = Some(uuid);
                 }
-                return
+                return;
             }
 
             let message = ServerBoundMessage::ConnectionRequest(("".to_string(), uuid));
@@ -226,24 +242,30 @@ impl Client {
         }
 
         let peer_list = self.peer_list.lock().await;
-        let options = peer_list.iter().map(|(name, uuid)| {
-            if open_connections.contains(uuid) {
-                format!("{}: {} (Connected)", uuid, name)
-            } else {
-                format!("{}: {}", uuid, name)
-            }
-        }).collect::<Vec<_>>();
+        let options = peer_list
+            .iter()
+            .map(|(name, uuid)| {
+                if open_connections.contains(uuid) {
+                    format!("{}: {} (Connected)", uuid, name)
+                } else {
+                    format!("{}: {}", uuid, name)
+                }
+            })
+            .collect::<Vec<_>>();
 
-        let selection = Select::new("Select a peer", options)
-            .prompt();
+        let selection = Select::new("Select a peer", options).prompt();
         if selection.is_err() {
             return;
         }
         let selection = selection.unwrap();
 
-        let selected_peer = peer_list.iter().find(|(name, uuid)| {
-            format!("{}: {}", uuid, name) == selection
-        }).unwrap();
+        let selected_peer = peer_list
+            .iter()
+            .find(|(name, uuid)| {
+                format!("{}: {}", uuid, name) == selection
+                    || format!("{}: {} (Connected)", uuid, name) == selection
+            })
+            .unwrap();
 
         if open_connections.contains(&selected_peer.1) {
             if *current_channel == Some(selected_peer.1) {
@@ -252,7 +274,7 @@ impl Client {
                 println!("\n\r\n You are now connected to this channel.\n\r");
                 *current_channel = Some(selected_peer.1);
             }
-            return
+            return;
         }
 
         let message = ServerBoundMessage::ConnectionRequest(selected_peer.clone());
@@ -261,23 +283,33 @@ impl Client {
 
     async fn accept_connection(&self) {
         let connection_requests = self.connection_requests.lock().await;
-        let options = connection_requests.iter().map(|(name, uuid)| {
-            format!("{}: {}", uuid, name)
-        }).collect::<Vec<_>>();
+        let options = connection_requests
+            .iter()
+            .map(|(name, uuid)| format!("{}: {}", uuid, name))
+            .collect::<Vec<_>>();
 
-        let selection = Select::new("Select a peer", options)
-            .prompt();
+        let selection = Select::new("Select a peer", options).prompt();
         if selection.is_err() {
             return;
         }
         let selection = selection.unwrap();
 
-        let selected_peer = connection_requests.iter().find(|(name, uuid)| {
-            format!("{}: {}", uuid, name) == selection
-        });
+        let selected_peer = connection_requests
+            .iter()
+            .find(|(name, uuid)| format!("{}: {}", uuid, name) == selection);
 
         let message = ServerBoundMessage::ConnectionResponse(selected_peer.unwrap().clone(), true);
         self.send_message(message).await;
+    }
+
+    async fn ui_send_message(&self, message: String) {
+        let current_channel = self.current_channel.lock().await;
+        if let Some(current_channel) = *current_channel {
+            let message = ServerBoundMessage::Message(("".to_string(), current_channel), message);
+            self.send_message(message).await;
+        } else {
+            println!("\n\r\n You are not connected to a channel.\n\r");
+        }
     }
 }
 

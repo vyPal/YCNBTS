@@ -1,6 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
 
-use bincode::deserialize_from;
 use clap::Parser;
 use client::Client;
 use tokio::{io::AsyncReadExt, net::TcpListener, sync::Mutex};
@@ -79,36 +78,73 @@ impl Server {
                         crate::shared::messages::ServerBoundMessage,
                     >(&buffer[..])
                     {
-                        Ok(message) => {
-                            match message {
-                                ServerBoundMessage::Advertise(name) => {
-                                    *client_clone.friendly_name.lock().unwrap() = Some(name.clone());
-                                    let message = ClientBoundMessage::NewClient((name, client_clone.uuid));
-                                    for client in clients_clone.lock().await.values() {
-                                        client.send_message(message.clone()).await;
-                                    }
-                                },
-                                ServerBoundMessage::ConnectionRequest(client_description) => {
-                                    let clients_lock = clients_clone.lock().await;
-                                    let target_client = clients_lock.get(&client_description.1);
-                                    if let Some(target_client) = target_client {
-                                        let message = ClientBoundMessage::ConnectionRequest((client_clone.friendly_name.lock().unwrap().clone().unwrap_or("".to_string()), client_clone.uuid));
-                                        target_client.send_message(message).await;
-                                    }
-                                },
-                                ServerBoundMessage::ConnectionResponse(client_description, response) => {
-                                    let clients_lock = clients_clone.lock().await;
-                                    let target_client = clients_lock.get(&client_description.1);
-                                    if let Some(target_client) = target_client {
-                                        let message = ClientBoundMessage::ConnectionResponse((client_clone.friendly_name.lock().unwrap().clone().unwrap_or("".to_string()), client_clone.uuid), response);
-                                        target_client.send_message(message).await;
-                                    }
-                                },
-                                _ => {
-                                    eprintln!("Unhandled message: {:?}", message);
+                        Ok(message) => match message {
+                            ServerBoundMessage::Advertise(name) => {
+                                *client_clone.friendly_name.lock().unwrap() = Some(name.clone());
+                                let message =
+                                    ClientBoundMessage::NewClient((name, client_clone.uuid));
+                                for client in clients_clone.lock().await.values() {
+                                    client.send_message(message.clone()).await;
                                 }
                             }
-                        }
+                            ServerBoundMessage::ConnectionRequest(client_description) => {
+                                let clients_lock = clients_clone.lock().await;
+                                let target_client = clients_lock.get(&client_description.1);
+                                if let Some(target_client) = target_client {
+                                    let message = ClientBoundMessage::ConnectionRequest((
+                                        client_clone
+                                            .friendly_name
+                                            .lock()
+                                            .unwrap()
+                                            .clone()
+                                            .unwrap_or("".to_string()),
+                                        client_clone.uuid,
+                                    ));
+                                    target_client.send_message(message).await;
+                                }
+                            }
+                            ServerBoundMessage::ConnectionResponse(
+                                client_description,
+                                response,
+                            ) => {
+                                let clients_lock = clients_clone.lock().await;
+                                let target_client = clients_lock.get(&client_description.1);
+                                if let Some(target_client) = target_client {
+                                    let message = ClientBoundMessage::ConnectionResponse(
+                                        (
+                                            client_clone
+                                                .friendly_name
+                                                .lock()
+                                                .unwrap()
+                                                .clone()
+                                                .unwrap_or("".to_string()),
+                                            client_clone.uuid,
+                                        ),
+                                        response,
+                                    );
+                                    target_client.send_message(message).await;
+                                }
+                            }
+                            ServerBoundMessage::Message(client_description, message) => {
+                                let clients_lock = clients_clone.lock().await;
+                                let target_client = clients_lock.get(&client_description.1);
+                                if let Some(target_client) = target_client {
+                                    let message = ClientBoundMessage::Message(
+                                        (
+                                            client_clone
+                                                .friendly_name
+                                                .lock()
+                                                .unwrap()
+                                                .clone()
+                                                .unwrap_or("".to_string()),
+                                            client_clone.uuid,
+                                        ),
+                                        message,
+                                    );
+                                    target_client.send_message(message).await;
+                                }
+                            }
+                        },
                         Err(e) => {
                             eprintln!("Failed to deserialize message: {}", e);
                         }
@@ -127,10 +163,15 @@ impl Server {
             let uuid_message = ClientBoundMessage::SetUuid(uuid);
             client.send_message(uuid_message).await;
 
-            let client_descriptions: Vec<ClientDescription> = self.clients.lock().await
+            let client_descriptions: Vec<ClientDescription> = self
+                .clients
+                .lock()
+                .await
                 .iter()
                 .filter(|(_, c)| c.friendly_name.lock().unwrap().is_some())
-                .map(|(uuid, client)| (client.friendly_name.lock().unwrap().clone().unwrap(), *uuid))
+                .map(|(uuid, client)| {
+                    (client.friendly_name.lock().unwrap().clone().unwrap(), *uuid)
+                })
                 .collect();
 
             println!("Describing clients: {:?}", client_descriptions);
