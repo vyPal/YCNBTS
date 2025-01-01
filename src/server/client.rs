@@ -10,7 +10,7 @@ use tokio::{
 pub struct Client {
     pub readonly_half: Arc<Mutex<OwnedReadHalf>>,
     pub writeable_half: Arc<Mutex<OwnedWriteHalf>>,
-    pub friendly_name: String,
+    pub friendly_name: Arc<std::sync::Mutex<Option<String>>>,
     pub uuid: uuid::Uuid,
 }
 

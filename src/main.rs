@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use clap::Parser;
 
 mod client;
@@ -30,8 +32,12 @@ async fn main() {
             server.run().await;
         }
         SubCommand::Client(args) => {
-            let client = client::Client::new(args.address, args.port).await;
-            client.handle().await;
+            let client = Arc::new(client::Client::new(args.address, args.port).await);
+            let cloned_client = client.clone();
+            tokio::spawn(async move {
+                cloned_client.handle().await;
+            });
+            client.run_ui().await;
         }
     }
 }
