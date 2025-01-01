@@ -87,7 +87,7 @@ impl Server {
                                     client.send_message(message.clone()).await;
                                 }
                             }
-                            ServerBoundMessage::ConnectionRequest(client_description) => {
+                            ServerBoundMessage::ConnectionRequest(client_description, public_key) => {
                                 let clients_lock = clients_clone.lock().await;
                                 let target_client = clients_lock.get(&client_description.1);
                                 if let Some(target_client) = target_client {
@@ -99,7 +99,7 @@ impl Server {
                                             .clone()
                                             .unwrap_or("".to_string()),
                                         client_clone.uuid,
-                                    ));
+                                    ), public_key);
                                     target_client.send_message(message).await;
                                 }
                             }

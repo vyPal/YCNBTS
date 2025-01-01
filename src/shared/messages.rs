@@ -1,3 +1,4 @@
+use rsa::RsaPublicKey;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -9,15 +10,15 @@ pub enum ClientBoundMessage {
     ClientList(Vec<ClientDescription>),
     NewClient(ClientDescription),
     ClientDisconnected(Uuid),
-    ConnectionRequest(ClientDescription),
-    ConnectionResponse(ClientDescription, bool),
-    Message(ClientDescription, String),
+    ConnectionRequest(ClientDescription, RsaPublicKey),
+    ConnectionResponse(ClientDescription, RsaPublicKey),
+    Message(ClientDescription, (Vec<u8>, Vec<u8>, Vec<u8>)),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ServerBoundMessage {
     Advertise(String),
-    ConnectionRequest(ClientDescription),
-    ConnectionResponse(ClientDescription, bool),
-    Message(ClientDescription, String),
+    ConnectionRequest(ClientDescription, RsaPublicKey),
+    ConnectionResponse(ClientDescription, RsaPublicKey),
+    Message(ClientDescription, (Vec<u8>, Vec<u8>, Vec<u8>)),
 }
