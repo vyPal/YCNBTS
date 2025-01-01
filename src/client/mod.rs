@@ -103,10 +103,9 @@ impl Client {
                     }
                     ClientBoundMessage::ConnectionRequest(client_description) => {
                         let mut connection_requests = self.connection_requests.lock().await;
-                        if connection_requests
+                        if !connection_requests
                             .iter()
-                            .find(|(_, id)| *id == client_description.1)
-                            .is_none()
+                            .any(|(_, id)| *id == client_description.1)
                         {
                             connection_requests.push(client_description);
                             println!("\n\r\n You have a new connection request. Type 'accept' to view and accept it.\n\r");
@@ -183,7 +182,11 @@ impl Client {
                             .map(|uuid| Uuid::parse_str(uuid).unwrap());
                         self.open_connection(uuid).await;
                     } else if action.starts_with("send") {
-                        let message = action.splitn(2, ' ').nth(1).unwrap_or("").to_string();
+                        let message = action
+                            .split_once(' ')
+                            .map(|x| x.1)
+                            .unwrap_or("")
+                            .to_string();
                         self.ui_send_message(message).await;
                     } else {
                         println!("Unknown action: {}", action);
